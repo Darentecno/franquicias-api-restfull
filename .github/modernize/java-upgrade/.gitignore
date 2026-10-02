@@ -1,0 +1,41 @@
+# === Maven / Build Output ===
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/resources/architecture/*.pom
+!**/src/test/resources/architecture/*.pom
+
+# === IDEs y Editores de Código ===
+# Visual Studio Code
+.vscode/
+*.code-workspace
+.history/
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# Eclipse
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache
+
+# === Logs y Archivos Temporales ===
+*.log
+*.tmp
+*.bak
+*.swp
+
+# === Sistema Operativo ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Docker y Entorno (Opcional si usas variables de entorno secretas) ===
+.env

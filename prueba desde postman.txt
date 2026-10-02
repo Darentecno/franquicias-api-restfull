@@ -1,0 +1,187 @@
+API DE FRANQUICIAS - GUIA DE PRUEBA Y DESPLIEGUE
+================================================
+
+1. DESCRIPCION
+--------------
+Microservicio REST para administrar franquicias, sucursales y productos. Usa Java 21, Spring Boot WebFlux, Reactor, R2DBC y MySQL 8. Las operaciones HTTP responden de forma reactiva.
+
+2. REQUISITOS LOCALES
+---------------------
+- Windows 10/11.
+- Docker Desktop con Docker Compose iniciado.
+- JDK 21 si se va a iniciar con Maven fuera de Docker.
+- Postman para probar las solicitudes.
+- MySQL Workbench es opcional. El proyecto también levanta MySQL en Docker.
+
+3. BASE DE DATOS Y CREDENCIALES DE PRUEBA
+-----------------------------------------
+La base usada en las pruebas locales es MySQL 8.4.
+- Nombre de la base: franquicias_db
+- Usuario local: root
+- Contraseña local de ejemplo: test
+- Puerto dentro del contenedor: 3306
+- Puerto publicado en el equipo: 3307, para no interferir con un MySQL local que use 3306.
+
+IMPORTANTE: copia .env.example como .env en la raíz y coloca/revisa allí las credenciales antes de levantar Docker Compose. El archivo .env está ignorado por Git; no publiques sus secretos. .env.example es una plantilla de desarrollo, no una configuración de producción.
+
+Variables de .env para desarrollo:
+DB_USER=colocs tu DB_USER
+DB_PASSWORD=coloca tu DB_PASSWORD
+MYSQL_PORT=3307
+
+Compose usa DB_USER/DB_PASSWORD para la conexión de la aplicación y DB_PASSWORD como contraseña root local de MySQL. La API dentro de Compose se conecta a mysql:3306; desde Windows, Workbench se conecta a localhost:3307.
+
+4. SCHEMA.SQL
+-------------
+El archivo src/main/resources/schema.sql contiene CREATE TABLE IF NOT EXISTS para las tablas franquicias, sucursales y productos. Define claves primarias UUID, claves foráneas entre franquicia/sucursal/producto, índices y una restricción para que stock no sea negativo.
+
+schema.sql crea las tablas faltantes, pero NO crea la base de datos ni migra tablas que ya existen. En Docker, la imagen MySQL crea franquicias_db al iniciar un volumen nuevo usando MYSQL_DATABASE. Para MySQL instalado directamente en Windows, crea antes la base:
+
+CREATE DATABASE franquicias_db;
+
+Si franquicias_db ya tiene tablas de una versión anterior, haz respaldo y verifica/actualiza el esquema antes de iniciar la API. CREATE TABLE IF NOT EXISTS no cambia columnas existentes.
+
+5. LEVANTAR LOCALMENTE CON DOCKER COMPOSE
+-----------------------------------------
+Desde PowerShell en la raíz del proyecto:
+
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+docker compose up --build -d
+docker compose ps
+docker compose logs -f api
+
+La API queda disponible en http://localhost:8080. MySQL queda publicado en localhost:3307. Sal de los logs con Ctrl+C.
+
+Para detener los servicios sin borrar la base:
+docker compose down
+
+Para borrar también el volumen y todos los datos locales de MySQL:
+docker compose down -v
+
+No ejecutes el último comando si necesitas conservar la información de la base.
+
+6. CREAR LA IMAGEN DOCKER
+-------------------------
+Para construir solo la imagen de la API:
+docker build -t franquicias-api:local .
+
+Para levantar/reconstruir la solución completa (API y MySQL):
+docker compose up --build -d
+
+Para ver los logs de la API:
+docker compose logs --tail 150 api
+
+7. EJECUTAR CON MAVEN EN WINDOWS
+--------------------------------
+Las pruebas unitarias no requieren MySQL:
+.\mvnw.cmd test
+
+Para usar el MySQL local instalado en Windows, configura en application.properties o en el entorno del proceso:
+R2DBC_URL=r2dbc:mysql://localhost:3306/franquicias_db
+DB_USER=(DB_USER)
+DB_PASSWORD=(DB_PASSWORD)
+
+Luego ejecuta:
+.\mvnw.cmd spring-boot:run
+
+Para usar el MySQL de Compose y ejecutar la API directamente en el host, levanta la base y apunta a su puerto publicado:
+docker compose up -d mysql
+$env:R2DBC_URL = "r2dbc:mysql://localhost:3307/franquicias_db"
+$env:DB_USER = DB_USER
+$env:DB_PASSWORD = DB_PASSWORD
+.\mvnw.cmd spring-boot:run
+
+8. PROBAR LOS ENDPOINTS EN POSTMAN
+----------------------------------
+Base URL: http://localhost:8080
+Header para POST/PUT: Content-Type: application/json
+
+Puedes importar la colección postman/Franchise API.postman_collection.json y correrla en orden. También puedes enviar manualmente estas solicitudes. Reemplaza los marcadores entre llaves por los IDs recibidos en las respuestas. Los IDs son UUID como cadenas.
+
+1) CREAR FRANQUICIA
+POST http://localhost:8080/api/franquicias
+Body:
+{"nombre":"Franquicia Postman"}
+Esperado: 201 Created. Guarda el campo id como franquiciaId.
+
+2) LISTAR FRANQUICIAS
+GET http://localhost:8080/api/franquicias
+Esperado: 200 OK.
+
+3) ACTUALIZAR NOMBRE DE FRANQUICIA
+PUT http://localhost:8080/api/franquicias/{franquiciaId}
+Body:
+{"nombre":"Franquicia Postman actualizada"}
+Esperado: 200 OK.
+
+4) CREAR SUCURSAL
+POST http://localhost:8080/api/franquicias/{franquiciaId}/sucursales
+Body:
+{"nombre":"Sucursal Centro"}
+Esperado: 201 Created. Guarda id como sucursalId.
+
+Crea una segunda sucursal repitiendo esta solicitud con nombre Sucursal Norte. Guarda su id como sucursalNorteId.
+
+5) LISTAR SUCURSALES
+GET http://localhost:8080/api/sucursales
+Esperado: 200 OK.
+
+6) ACTUALIZAR NOMBRE DE SUCURSAL
+PUT http://localhost:8080/api/sucursales/{sucursalId}
+Body:
+{"nombre":"Sucursal Centro Renovada"}
+Esperado: 200 OK.
+
+7) CREAR PRODUCTO
+POST http://localhost:8080/api/v1/sucursales/{sucursalId}/productos
+Body:
+{"nombre":"Cafe","stock":25}
+Esperado: 201 Created. Guarda id como productoId.
+
+Crea otro producto en la misma sucursal, por ejemplo:
+{"nombre":"Te","stock":35}
+Crea al menos un producto para sucursalNorteId. Esto permite verificar el máximo de stock por sucursal.
+
+8) ACTUALIZAR STOCK
+PUT http://localhost:8080/api/v1/productos/{productoId}/stock
+Body:
+{"stock":40}
+Esperado: 200 OK; la respuesta debe mostrar stock 40.
+
+9) ACTUALIZAR NOMBRE DEL PRODUCTO
+PUT http://localhost:8080/api/v1/productos/{productoId}
+Body:
+{"nombre":"Cafe Premium"}
+Esperado: 200 OK.
+
+10) CONSULTAR PRODUCTO CON MAYOR STOCK POR SUCURSAL
+GET http://localhost:8080/api/v1/franquicias/{franquiciaId}/max-stock
+Esperado: 200 OK y una entrada por cada sucursal que tenga productos. Cada entrada incluye sucursalId, sucursalNombre, productoId, productoNombre y stock.
+
+11) ELIMINAR PRODUCTO
+DELETE http://localhost:8080/api/v1/productos/{productoId}
+Esperado: 204 No Content.
+
+Errores esperados: 400 para solicitud inválida, 404 para recurso inexistente, 409 para franquicia duplicada.
+
+9. CONFIGURACION PARA PRODUCCION
+--------------------------------
+Requisitos:
+- Plataforma para ejecutar contenedores y registro privado de imágenes.
+- MySQL 8 administrado con red privada/restringida y backups.
+- Gestor de secretos para credenciales.
+- HTTPS en el punto de entrada de la API.
+
+Configura estas variables en el servicio de la aplicación; no las guardes en el repositorio:
+R2DBC_URL=r2dbc:mysql://<host-mysql>:3306/franquicias_db
+DB_USER=<usuario-de-aplicacion>
+DB_PASSWORD=<secreto-seguro>
+SPRING_SQL_INIT_MODE=never
+
+En producción crea la base y ejecuta schema.sql como migración antes del despliegue. Usa un usuario MySQL de mínimo privilegio; no uses root/test ni las credenciales del .env.example. Configura TLS para la conexión según el proveedor de MySQL y permite acceso de red solo desde la aplicación.
+
+Crear/publicar imagen de ejemplo:
+docker build -t <registro>/<proyecto>/franquicias-api:<tag> .
+docker push <registro>/<proyecto>/franquicias-api:<tag>
+
+Antes de exponer públicamente la API, agrega autenticación/autorización y monitoreo/health checks. La aplicación actualmente no implementa autenticación.
